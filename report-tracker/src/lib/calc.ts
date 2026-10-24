@@ -12,6 +12,8 @@ export type AssignmentCalc = {
   employeeId: string | null;
   employeeName?: string | null; // kept on the row after an employee is deleted
   employeeTotal: number;
+  employeeQty?: number; // falls back to reportsReceived
+  isSelf?: boolean; // done by me: no employee payment owed
   clientPaid: number;
   employeePaid: number;
 };
@@ -27,6 +29,8 @@ export type Summary = {
   employeePaid: number;
   employeePending: number;
   profit: number;
+  selfReports: number; // reports I did myself
+  selfSaved: number; // what those would have cost if given to an employee
 };
 
 // Each assignment is counted once; payments are capped at the row total.
@@ -35,12 +39,18 @@ export function summarize(rows: AssignmentCalc[]): Summary {
     reportsReceived: 0, reportsAssigned: 0, reportsPending: 0,
     clientAmount: 0, clientReceived: 0, clientPending: 0,
     employeeTotal: 0, employeePaid: 0, employeePending: 0, profit: 0,
+    selfReports: 0, selfSaved: 0,
   };
   for (const r of rows) {
     s.reportsReceived += r.reportsReceived;
     if (r.employeeId || r.employeeName) s.reportsAssigned += r.reportsReceived;
     s.clientAmount += r.clientTotal;
     s.clientReceived += Math.min(r.clientPaid, r.clientTotal);
+    if (r.isSelf) {
+      s.selfReports += r.employeeQty ?? r.reportsReceived;
+      s.selfSaved += r.employeeTotal;
+      continue;
+    }
     s.employeeTotal += r.employeeTotal;
     s.employeePaid += Math.min(r.employeePaid, r.employeeTotal);
   }
@@ -49,4 +59,34 @@ export function summarize(rows: AssignmentCalc[]): Summary {
   s.employeePending = s.employeeTotal - s.employeePaid;
   s.profit = s.clientAmount - s.employeeTotal;
   return s;
+}
+
+export type EmployeeLine = {
+  key: string;
+  name: string;
+  reports: number;
+  total: number;
+  paid: number;
+  pending: number;
+  status: "paid" | "partial" | "pending";
+};
+
+// One line per employee (self and unassigned rows excluded). Unpaid employees come first.
+export function summarizeByEmployee(rows: AssignmentCalc[]): EmployeeLine[] {
+  const map = new Map<string, EmployeeLine>();
+  for (const r of rows) {
+    if (r.isSelf || !(r.employeeId || r.employeeName)) continue;
+    const key = r.employeeId ?? `name:${r.employeeName}`;
+    const l = map.get(key) ?? { key, name: r.employeeName ?? "Employee", reports: 0, total: 0, paid: 0, pending: 0, status: "paid" as const };
+    l.reports += r.employeeQty ?? r.reportsReceived;
+    l.total += r.employeeTotal;
+    l.paid += Math.min(r.employeePaid, r.employeeTotal);
+    map.set(key, l);
+  }
+  const lines = [...map.values()];
+  for (const l of lines) {
+    l.pending = l.total - l.paid;
+    l.status = l.pending <= 0 ? "paid" : l.paid > 0 ? "partial" : "pending";
+  }
+  return lines.sort((a, b) => Number(b.pending > 0) - Number(a.pending > 0) || a.name.localeCompare(b.name));
 }

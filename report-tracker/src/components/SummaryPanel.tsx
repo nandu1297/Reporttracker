@@ -1,4 +1,4 @@
-import { inr, type Summary } from "@/lib/calc";
+import { inr, type EmployeeLine, type Summary } from "@/lib/calc";
 import { cn } from "@/lib/utils";
 
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: "green" | "orange" | "plain" }) {
@@ -27,11 +27,59 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-export function SummaryPanel({ title, s, bulk }: { title: string; s: Summary; bulk?: React.ReactNode }) {
+const STATUS = {
+  paid: { text: "Paid", cls: "text-emerald-600" },
+  partial: { text: "Partial", cls: "text-orange-600" },
+  pending: { text: "Pending", cls: "text-orange-600" },
+} as const;
+
+function EmployeeTable({ lines }: { lines: EmployeeLine[] }) {
+  return (
+    <div className="mt-3 overflow-x-auto rounded-lg border bg-white p-3">
+      <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Payment per employee</h4>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-slate-500">
+            <th className="py-1 font-medium">Employee</th>
+            <th className="py-1 text-right font-medium">Reports</th>
+            <th className="py-1 text-right font-medium">Amount</th>
+            <th className="py-1 text-right font-medium">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l) => (
+            <tr key={l.key} className="border-t">
+              <td className="py-1.5 font-medium">{l.name}</td>
+              <td className="py-1.5 text-right tabular-nums">{l.reports}</td>
+              <td className="py-1.5 text-right tabular-nums">{inr(l.total)}</td>
+              <td className={cn("py-1.5 text-right font-semibold", STATUS[l.status].cls)}>
+                {STATUS[l.status].text}
+                {l.status === "partial" && ` · ${inr(l.pending)} left`}
+                {l.status === "pending" && ` · ${inr(l.pending)}`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function SummaryPanel({
+  title,
+  s,
+  bulk,
+  byEmployee,
+}: {
+  title: string;
+  s: Summary;
+  bulk?: React.ReactNode;
+  byEmployee?: EmployeeLine[];
+}) {
   return (
     <section className="mt-3">
       <h3 className="mb-2 text-sm font-semibold text-slate-700">{title}</h3>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Group title="Reports">
           <Stat label="Total received" value={s.reportsReceived} />
           <Stat label="Assigned" value={s.reportsAssigned} tone="green" />
@@ -55,7 +103,13 @@ export function SummaryPanel({ title, s, bulk }: { title: string; s: Summary; bu
             <div className="text-xs text-slate-500">Client amount − employee payment</div>
           </div>
         </Group>
+        <Group title="Self (done by me)">
+          <Stat label="Reports done" value={s.selfReports} />
+          <Stat label="Employee cost saved" value={inr(s.selfSaved)} tone={s.selfSaved ? "green" : "plain"} />
+          <div className="pt-1 text-xs text-slate-500">Not counted in employee payment</div>
+        </Group>
       </div>
+      {byEmployee && byEmployee.length > 0 && <EmployeeTable lines={byEmployee} />}
       {bulk}
     </section>
   );

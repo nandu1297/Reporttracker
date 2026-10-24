@@ -12,12 +12,13 @@ export default async function MonthPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const [full, clients, employees] = await Promise.all([
     getMonthFull(id),
-    db.client.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, rate: true } }),
-    db.employee.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    db.client.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, rate: true, defaultReports: true } }),
+    db.employee.findMany({ orderBy: [{ isSelf: "desc" }, { name: "asc" }], select: { id: true, name: true, isSelf: true } }),
   ]);
   if (!full) notFound();
   const { month, weeks, monthSummary } = full;
   const archived = month.status === "COMPLETED";
+  const owed = weeks.flatMap((w) => w.rows).filter((r) => !r.isSelf && (r.employeeId || r.employeeName));
 
   return (
     <div className="space-y-8">
@@ -60,12 +61,21 @@ export default async function MonthPage({ params }: { params: Promise<{ id: stri
           title={`W1 + W2 + W3 + W4 · ${fmtShort(weeks[0].startDate)} – ${fmtShort(weeks[3].endDate)}`}
           s={monthSummary}
           bulk={
-            <BulkReceived
-              scope={{ monthId: month.id }}
-              reports={monthSummary.reportsReceived}
-              checked={weeks.some((w) => w.rows.length > 0) && weeks.every((w) => w.rows.every((r) => r.clientPaid >= r.clientTotal))}
-              disabled={archived}
-            />
+            <>
+              <BulkReceived
+                scope={{ monthId: month.id }}
+                reports={monthSummary.reportsReceived}
+                checked={weeks.some((w) => w.rows.length > 0) && weeks.every((w) => w.rows.every((r) => r.clientPaid >= r.clientTotal))}
+                disabled={archived}
+              />
+              <BulkReceived
+                kind="employee"
+                scope={{ monthId: month.id }}
+                reports={owed.reduce((n, r) => n + (r.employeeQty ?? r.reportsReceived), 0)}
+                checked={owed.length > 0 && owed.every((r) => r.employeePaid >= r.employeeTotal)}
+                disabled={archived}
+              />
+            </>
           }
         />
         {!archived && (
