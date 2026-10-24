@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { clientTotal, employeeTotal, DEFAULT_CLIENT_RATE, DEFAULT_EMPLOYEE_RATE } from "@/lib/calc";
 import { weekRanges } from "@/lib/dates";
+import { KEEP_OPTIONS, currentMonthIndex, monthsToPrune } from "@/lib/prune";
 
 type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -29,6 +30,7 @@ const clientSchema = z.object({
   name: z.string().trim().min(1, "Client name is required").max(120),
   notes: z.string().trim().max(500).optional(),
   rate: int("Rate").default(DEFAULT_CLIENT_RATE),
+  defaultReports: int("Default reports", 1).default(1),
 });
 
 export async function addClient(
@@ -38,7 +40,7 @@ export async function addClient(
     const d = clientSchema.parse(input);
     const dup = await db.client.findFirst({ where: { name: { equals: d.name, mode: "insensitive" } } });
     if (dup) return { ok: false, error: "A client with this name already exists" };
-    const client = await db.client.create({ data: { name: d.name, notes: d.notes || null, rate: d.rate } });
+    const client = await db.client.create({ data: { name: d.name, notes: d.notes || null, rate: d.rate, defaultReports: d.defaultReports } });
     refresh();
     return { ok: true, client: { id: client.id, name: client.name, rate: client.rate } };
   } catch (e) {
@@ -79,6 +81,8 @@ export async function deleteClient(id: string): Promise<Result> {
 
 export async function deleteEmployee(id: string): Promise<Result> {
   try {
+    const emp = await db.employee.findUnique({ where: { id } });
+    if (emp?.isSelf) throw new Error("“Self” is built in and cannot be deleted");
     await db.employee.delete({ where: { id } });
     refresh();
     return { ok: true };
@@ -130,6 +134,20 @@ export async function deleteMonth(id: string): Promise<Result> {
     await db.month.delete({ where: { id } });
     refresh();
     return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// Deletes archived months older than the last `keep` months. Active months are never touched.
+export async function deleteOldMonths(keep: number): Promise<Result<{ deleted: number }>> {
+  try {
+    if (!(KEEP_OPTIONS as readonly number[]).includes(keep)) throw new Error("Invalid period");
+    const all = await db.month.findMany({ select: { id: true, year: true, month: true, status: true } });
+    const ids = monthsToPrune(all, keep, currentMonthIndex()).map((m) => m.id);
+    if (ids.length) await db.month.deleteMany({ where: { id: { in: ids }, status: "COMPLETED" } });
+    refresh();
+    return { ok: true, deleted: ids.length };
   } catch (e) {
     return fail(e);
   }
@@ -213,13 +231,19 @@ export async function updateAssignment(id: string, input: unknown): Promise<Resu
         if (!employee) throw new Error("Employee not found");
         data.employeeId = employee.id;
         data.employeeName = employee.name;
+        data.isSelf = employee.isSelf;
+        // Nothing is owed for work done by me, so drop any payment recorded earlier.
+        if (employee.isSelf) data.employeePayments = { deleteMany: {} };
       } else {
         data.employeeId = null;
         data.employeeName = null;
+        data.isSelf = false;
       }
     }
     if (patch.reportName !== undefined) data.reportName = patch.reportName;
-    const reports = patch.reportsReceived ?? cur.reportsReceived;
+    // Picking a client fills in that client's usual report count (unless one was typed in the same edit).
+    const reports =
+      patch.reportsReceived ?? (patch.clientId && client ? client.defaultReports : cur.reportsReceived);
     const eRate = patch.employeeRate ?? cur.employeeRate;
     const eQty = patch.employeeQty ?? cur.employeeQty;
     Object.assign(data, {
@@ -270,6 +294,7 @@ export async function setPayment(id: string, kind: "client" | "employee", paid: 
       else if (a.clientTotal > existing)
         await db.clientPayment.create({ data: { assignmentId: id, amount: a.clientTotal - existing } });
     } else {
+      if (a.isSelf) throw new Error("Self reports have no employee payment");
       const existing = a.employeePayments.reduce((s, p) => s + p.amount, 0);
       if (!paid) await db.employeePayment.deleteMany({ where: { assignmentId: id } });
       else if (a.employeeTotal > existing)
@@ -302,6 +327,36 @@ export async function setClientPaidBulk(
         .map((r) => ({ assignmentId: r.id, amount: r.clientTotal - r.clientPayments.reduce((s, p) => s + p.amount, 0) }))
         .filter((p) => p.amount > 0);
       if (data.length) await db.clientPayment.createMany({ data });
+    }
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// Bulk: mark every employee payment in a week (or a whole month) paid, or reset them to pending.
+// Self and unassigned rows owe nothing, so they are left alone.
+export async function setEmployeePaidBulk(
+  scope: { weekId: string } | { monthId: string },
+  paid: boolean,
+): Promise<Result> {
+  try {
+    const base = "weekId" in scope ? { weekId: scope.weekId } : { week: { monthId: scope.monthId } };
+    const where = { ...base, isSelf: false, OR: [{ employeeId: { not: null } }, { employeeName: { not: null } }] };
+    const rows = await db.assignment.findMany({
+      relationLoadStrategy: "join",
+      where,
+      include: { week: { include: { month: true } }, employeePayments: true },
+    });
+    if (rows.some((r) => r.week.month.status === "COMPLETED")) throw new Error(ARCHIVED);
+    if (!paid) {
+      await db.employeePayment.deleteMany({ where: { assignment: where } });
+    } else {
+      const data = rows
+        .map((r) => ({ assignmentId: r.id, amount: r.employeeTotal - r.employeePayments.reduce((s, p) => s + p.amount, 0) }))
+        .filter((p) => p.amount > 0);
+      if (data.length) await db.employeePayment.createMany({ data });
     }
     refresh();
     return { ok: true };

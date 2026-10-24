@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { extendWeek, addAssignment, deleteClient, deleteEmployee, deleteAssignment, setPayment, updateAssignment } from "@/app/actions";
 import { fmtDay, fmtShort } from "@/lib/dates";
-import { clientTotal, employeeTotal, inr, summarize, type AssignmentCalc } from "@/lib/calc";
+import { clientTotal, employeeTotal, inr, summarize, summarizeByEmployee, type AssignmentCalc } from "@/lib/calc";
 import type { RowDTO } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ import { AddClientDialog, AddEmployeeDialog } from "@/components/QuickAdd";
 import { BulkReceived } from "@/components/BulkReceived";
 import { SummaryPanel } from "@/components/SummaryPanel";
 
-type Opt = { id: string; name: string };
+type Opt = { id: string; name: string; isSelf?: boolean };
 type Week = { id: string; number: number; startDate: string; endDate: string };
 
 const GRID =
@@ -48,7 +48,7 @@ export function WeekSection({
 }: {
   week: Week;
   rows: RowDTO[];
-  clients: (Opt & { rate: number })[];
+  clients: (Opt & { rate: number; defaultReports: number })[];
   employees: Opt[];
   readOnly: boolean;
   nextWeekDays: number | null; // null for the last week
@@ -56,6 +56,8 @@ export function WeekSection({
   const [, start] = useTransition();
   const [rows, applyOpt] = useOptimistic(serverRows, (cur: RowDTO[], a: Opt2) => reduce(cur, a, clients, employees));
   const summary = summarize(rows as AssignmentCalc[]);
+  const byEmployee = summarizeByEmployee(rows as AssignmentCalc[]);
+  const owed = rows.filter((r) => !r.isSelf && (r.employeeId || r.employeeName)); // rows that owe an employee
   const [removing, setRemoving] = useState<{ kind: "client" | "employee"; id: string; name: string } | null>(null);
   const [adding, setAdding] = useState<{ rowId: string; kind: "client" | "employee" } | null>(null);
 
@@ -148,14 +150,25 @@ export function WeekSection({
       <SummaryPanel
         title={`W${week.number} summary · ${fmtShort(dayList[0])} – ${fmtShort(dayList[dayList.length - 1])}`}
         s={summary}
+        byEmployee={byEmployee}
         bulk={
-          <BulkReceived
-            scope={{ weekId: week.id }}
-            reports={summary.reportsReceived}
-            checked={rows.length > 0 && rows.every((r) => r.clientPaid >= r.clientTotal)}
-            disabled={readOnly}
-            onOptimistic={(paid) => applyOpt({ t: "bulk", paid })}
-          />
+          <>
+            <BulkReceived
+              scope={{ weekId: week.id }}
+              reports={summary.reportsReceived}
+              checked={rows.length > 0 && rows.every((r) => r.clientPaid >= r.clientTotal)}
+              disabled={readOnly}
+              onOptimistic={(paid) => applyOpt({ t: "bulk", paid })}
+            />
+            <BulkReceived
+              kind="employee"
+              scope={{ weekId: week.id }}
+              reports={byEmployee.reduce((n, l) => n + l.reports, 0)}
+              checked={owed.length > 0 && owed.every((r) => r.employeePaid >= r.employeeTotal)}
+              disabled={readOnly}
+              onOptimistic={(paid) => applyOpt({ t: "bulkEmp", paid })}
+            />
+          </>
         }
       />
 
@@ -209,7 +222,7 @@ function Row({
   onRemove,
 }: {
   row: RowDTO;
-  clients: (Opt & { rate: number })[];
+  clients: (Opt & { rate: number; defaultReports: number })[];
   employees: Opt[];
   readOnly: boolean;
   onPatch: (p: Record<string, unknown>) => void;
@@ -241,6 +254,12 @@ function Row({
   const lbl = "mb-0.5 block text-[11px] font-medium uppercase text-slate-400 lg:hidden";
 
   const payBtn = (kind: "client" | "employee") => {
+    if (kind === "employee" && row.isSelf)
+      return (
+        <div className="flex h-10 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-semibold text-slate-600 lg:h-9">
+          Self · no payment
+        </div>
+      );
     const paid = kind === "client" ? row.clientPaid : row.employeePaid;
     const total = kind === "client" ? row.clientTotal : row.employeeTotal;
     const done = total > 0 && paid >= total;
@@ -389,11 +408,14 @@ function Row({
 type Opt2 =
   | { t: "pay"; id: string; kind: "client" | "employee"; paid: boolean }
   | { t: "bulk"; paid: boolean }
+  | { t: "bulkEmp"; paid: boolean }
   | { t: "del"; id: string }
   | { t: "patch"; id: string; patch: Record<string, unknown> };
 
 // Applies an edit to local rows immediately; the server result replaces it a moment later.
-function reduce(cur: RowDTO[], a: Opt2, clients: (Opt & { rate: number })[], employees: Opt[]): RowDTO[] {
+function reduce(cur: RowDTO[], a: Opt2, clients: (Opt & { rate: number; defaultReports: number })[], employees: Opt[]): RowDTO[] {
+  if (a.t === "bulkEmp")
+    return cur.map((r) => (r.isSelf || !(r.employeeId || r.employeeName) ? r : { ...r, employeePaid: a.paid ? r.employeeTotal : 0 }));
   if (a.t === "bulk") return cur.map((r) => ({ ...r, clientPaid: a.paid ? r.clientTotal : 0 }));
   if (a.t === "del") return cur.filter((r) => r.id !== a.id);
   return cur.map((r) => {
@@ -409,11 +431,14 @@ function reduce(cur: RowDTO[], a: Opt2, clients: (Opt & { rate: number })[], emp
       n.clientId = c?.id ?? null;
       n.clientName = c?.name ?? "";
       if (c && p.clientRate === undefined) n.clientRate = c.rate;
+      if (c && p.reportsReceived === undefined) n.reportsReceived = c.defaultReports;
     }
     if (p.employeeId !== undefined) {
       const e = employees.find((x) => x.id === p.employeeId);
       n.employeeId = e?.id ?? null;
       n.employeeName = e?.name ?? null;
+      n.isSelf = !!e?.isSelf;
+      if (n.isSelf) n.employeePaid = 0;
     }
     if (p.reportName !== undefined) n.reportName = String(p.reportName);
     if (p.reportsReceived !== undefined) n.reportsReceived = Number(p.reportsReceived) || 0;

@@ -18,6 +18,7 @@ model Client {
   name        String       @unique
   notes       String?
   rate        Int          @default(2000) // client payment rate per report, in rupees
+  defaultReports Int       @default(1) // "Reports received" filled in when this client is picked on a row
   createdAt   DateTime     @default(now())
   assignments Assignment[]
 }
@@ -26,6 +27,7 @@ model Employee {
   id          String       @id @default(cuid())
   name        String       @unique
   contact     String?
+  isSelf      Boolean      @default(false) // the built-in "Self" entry: work done by me, nothing to pay
   createdAt   DateTime     @default(now())
   assignments Assignment[]
 }
@@ -69,6 +71,7 @@ model Assignment {
   clientTotal          Int // reportsReceived * clientRate
   employeeId           String?
   employeeName         String?
+  isSelf               Boolean           @default(false) // snapshot: done by me, no employee payment owed
   employeeRate         Int               @default(400)
   employeeQty          Int               @default(1)
   employeeTotal        Int // employeeRate * employeeQty

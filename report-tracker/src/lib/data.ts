@@ -5,7 +5,7 @@ export type RowDTO = {
   id: string; weekId: string; date: string; clientId: string | null; clientName: string;
   reportName: string; reportsReceived: number; clientRate: number; clientTotal: number;
   employeeId: string | null; employeeName: string | null; employeeRate: number; employeeQty: number;
-  employeeTotal: number; clientPaid: number; employeePaid: number;
+  employeeTotal: number; clientPaid: number; employeePaid: number; isSelf: boolean;
 };
 
 export async function getMonthFull(id: string) {
@@ -31,7 +31,7 @@ export async function getMonthFull(id: string) {
       clientId: a.clientId, clientName: a.clientName, reportName: a.reportName,
       reportsReceived: a.reportsReceived, clientRate: a.clientRate, clientTotal: a.clientTotal,
       employeeId: a.employeeId, employeeName: a.employeeName, employeeRate: a.employeeRate,
-      employeeQty: a.employeeQty, employeeTotal: a.employeeTotal,
+      employeeQty: a.employeeQty, employeeTotal: a.employeeTotal, isSelf: a.isSelf,
       clientPaid: a.clientPayments.reduce((s, p) => s + p.amount, 0),
       employeePaid: a.employeePayments.reduce((s, p) => s + p.amount, 0),
     }));

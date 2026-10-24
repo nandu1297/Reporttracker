@@ -31,6 +31,8 @@ export default async function Dashboard({
       employeeId: a.employeeId,
       employeeName: a.employeeName,
       employeeTotal: a.employeeTotal,
+      employeeQty: a.employeeQty,
+      isSelf: a.isSelf,
       clientPaid: a.clientPayments.reduce((x, p) => x + p.amount, 0),
       employeePaid: a.employeePayments.reduce((x, p) => x + p.amount, 0),
     })),

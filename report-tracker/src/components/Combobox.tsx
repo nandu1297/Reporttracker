@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronsUpDown, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type Option = { id: string; name: string };
+type Option = { id: string; name: string; isSelf?: boolean };
 
 // Searchable dropdown with an "+ Add" entry pinned to the bottom.
 export function Combobox({
@@ -30,15 +31,36 @@ export function Combobox({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  // The list is drawn in a portal so the table's scroll box can't clip it; it flips upward when space below is short.
+  const place = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    const below = window.innerHeight - r.bottom;
+    const up = below < 340 && r.top > below;
+    setPos({ left: r.left, width: r.width, ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) });
+  };
 
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!ref.current?.contains(t) && !popRef.current?.contains(t)) setOpen(false);
+    };
+    const onScroll = (e: Event) => {
+      if (!popRef.current?.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", place);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", place);
+    };
   }, [open]);
 
   const filtered = options.filter((o) => o.name.toLowerCase().includes(q.trim().toLowerCase()));
@@ -50,6 +72,7 @@ export function Combobox({
         disabled={disabled}
         onClick={() => {
           setQ("");
+          place();
           setOpen((o) => !o);
         }}
         className="flex h-10 w-full items-center justify-between gap-1 rounded-lg border bg-white px-3 text-left text-sm disabled:opacity-60 lg:h-9"
@@ -57,8 +80,12 @@ export function Combobox({
         <span className={cn("truncate", !label && "text-slate-400")}>{label || placeholder}</span>
         <ChevronsUpDown className="size-3.5 shrink-0 text-slate-400" />
       </button>
-      {open && (
-        <div className="absolute left-0 z-40 mt-1 w-full min-w-56 rounded-lg border bg-white shadow-lg">
+      {open && pos && createPortal(
+        <div
+          ref={popRef}
+          style={{ position: "fixed", left: pos.left, top: pos.top, bottom: pos.bottom, width: Math.max(pos.width, 224) }}
+          className="z-50 rounded-lg border bg-white shadow-lg"
+        >
           <input
             autoFocus
             value={q}
@@ -94,7 +121,7 @@ export function Combobox({
                 >
                   {o.name}
                 </button>
-                {onDelete && (
+                {onDelete && !o.isSelf && (
                   <button
                     type="button"
                     aria-label={`Delete ${o.name}`}
@@ -120,7 +147,8 @@ export function Combobox({
           >
             <Plus className="size-4" /> {addLabel}
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
