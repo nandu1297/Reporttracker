@@ -1,0 +1,105 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+}
+
+enum MonthStatus {
+  ACTIVE
+  COMPLETED
+}
+
+model Client {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  notes       String?
+  rate        Int          @default(2000) // client payment rate per report, in rupees
+  createdAt   DateTime     @default(now())
+  assignments Assignment[]
+}
+
+model Employee {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  contact     String?
+  createdAt   DateTime     @default(now())
+  assignments Assignment[]
+}
+
+model Month {
+  id          String      @id @default(cuid())
+  year        Int
+  month       Int // 1-12
+  status      MonthStatus @default(ACTIVE)
+  completedAt DateTime?
+  createdAt   DateTime    @default(now())
+  weeks       Week[]
+
+  @@unique([year, month])
+  @@index([status])
+}
+
+model Week {
+  id          String       @id @default(cuid())
+  monthId     String
+  number      Int // 1-4 (W1..W4)
+  startDate   DateTime     @db.Date
+  endDate     DateTime     @db.Date
+  month       Month        @relation(fields: [monthId], references: [id], onDelete: Cascade)
+  assignments Assignment[]
+
+  @@unique([monthId, number])
+}
+
+// One row of the daily table. Names are snapshotted so history survives renames.
+model Assignment {
+  id                   String            @id @default(cuid())
+  weekId               String
+  date                 DateTime          @db.Date
+  sortOrder            Int               @default(0)
+  clientId             String?
+  clientName           String
+  reportName           String            @default("")
+  reportsReceived      Int               @default(1)
+  clientRate           Int
+  clientTotal          Int // reportsReceived * clientRate
+  employeeId           String?
+  employeeName         String?
+  employeeRate         Int               @default(400)
+  employeeQty          Int               @default(1)
+  employeeTotal        Int // employeeRate * employeeQty
+  createdAt            DateTime          @default(now())
+  week                 Week              @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  client               Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  employee             Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  clientPayments       ClientPayment[]
+  employeePayments     EmployeePayment[]
+
+  @@index([weekId, date])
+  @@index([clientId])
+  @@index([employeeId])
+}
+
+model ClientPayment {
+  id           String     @id @default(cuid())
+  assignmentId String
+  amount       Int
+  paidAt       DateTime   @default(now())
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId])
+}
+
+model EmployeePayment {
+  id           String     @id @default(cuid())
+  assignmentId String
+  amount       Int
+  paidAt       DateTime   @default(now())
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId])
+}
