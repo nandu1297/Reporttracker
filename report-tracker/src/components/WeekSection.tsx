@@ -97,7 +97,7 @@ export function WeekSection({
                 <div className="flex items-center justify-between bg-slate-100/70 px-3 py-1.5">
                   <span className="text-sm font-semibold">{fmtDay(d)}</span>
                   {!readOnly && (
-                    <Button size="sm" variant="ghost" className="h-8 text-emerald-700" onClick={() => run(() => addAssignment(week.id, iso))}>
+                    <Button size="sm" variant="ghost" className="h-10 text-emerald-700 lg:h-8" onClick={() => run(() => addAssignment(week.id, iso))}>
                       <Plus /> Add Report Assignment
                     </Button>
                   )}
@@ -282,7 +282,7 @@ function Row({
   };
 
   return (
-    <div className={cn("grid grid-cols-2 items-end gap-2 border-t px-3 py-3 first:border-t-0 lg:items-center lg:py-2", GRID)}>
+    <div className={cn("grid grid-cols-2 items-end gap-2 border-t-4 border-slate-100 px-3 py-4 first:border-t-0 lg:items-center lg:border-t lg:border-border lg:py-2", GRID)}>
       <div className="col-span-2 lg:col-span-1">
         <span className={lbl}>Client</span>
         <Combobox
@@ -308,7 +308,7 @@ function Row({
           onBlur={() => commit("reportName", reportName, row.reportName)}
         />
       </div>
-      <div>
+      <div className="col-span-2 lg:col-span-1">
         <span className={lbl}>Reports received</span>
         <Input
           className={num}
@@ -371,7 +371,7 @@ function Row({
         <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
           {inr(row.clientTotal)} @
           <Input
-            className="h-6 w-16 px-1 text-xs"
+            className="h-9 w-20 px-1 text-base lg:h-6 lg:w-16 lg:text-xs"
             type="number"
             min={0}
             inputMode="numeric"

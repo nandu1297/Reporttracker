@@ -31,7 +31,7 @@ export function Combobox({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number; list: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
@@ -41,7 +41,10 @@ export function Combobox({
     if (!r) return;
     const below = window.innerHeight - r.bottom;
     const up = below < 340 && r.top > below;
-    setPos({ left: r.left, width: r.width, ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) });
+    // Shrink the list on short screens so the search box and "+ Add" stay reachable.
+    const room = (up ? r.top : below) - 16;
+    const list = Math.max(96, Math.min(208, room - 100));
+    setPos({ left: r.left, width: r.width, list, ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) });
   };
 
   useEffect(() => {
@@ -50,8 +53,9 @@ export function Combobox({
       const t = e.target as Node;
       if (!ref.current?.contains(t) && !popRef.current?.contains(t)) setOpen(false);
     };
+    // Keep the list attached to its field. Closing here would shut it instantly on phones, where the keyboard scrolls the page.
     const onScroll = (e: Event) => {
-      if (!popRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!popRef.current?.contains(e.target as Node)) place();
     };
     document.addEventListener("mousedown", close);
     window.addEventListener("scroll", onScroll, true);
@@ -87,18 +91,19 @@ export function Combobox({
           className="z-50 rounded-lg border bg-white shadow-lg"
         >
           <input
-            autoFocus
+            // No autofocus on touch screens: the keyboard would cover the list.
+            autoFocus={!window.matchMedia("(pointer: coarse)").matches}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search…"
-            className="w-full rounded-t-lg border-b px-3 py-2 text-sm outline-none"
+            className="w-full rounded-t-lg border-b px-3 py-2 text-base outline-none lg:text-sm"
           />
-          <ul className="max-h-52 overflow-y-auto py-1">
+          <ul style={{ maxHeight: pos.list }} className="overflow-y-auto overscroll-contain py-1">
             {value && (
               <li>
                 <button
                   type="button"
-                  className="w-full px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-50"
+                  className="w-full px-3 py-3 text-left text-sm text-slate-500 hover:bg-slate-50 lg:py-2"
                   onClick={() => {
                     onSelect(null);
                     setOpen(false);
@@ -113,7 +118,7 @@ export function Combobox({
               <li key={o.id} className="flex items-center hover:bg-slate-50">
                 <button
                   type="button"
-                  className={cn("min-w-0 flex-1 truncate px-3 py-2 text-left text-sm", o.id === value && "bg-emerald-50 font-medium")}
+                  className={cn("min-w-0 flex-1 truncate px-3 py-3 text-left text-base lg:py-2 lg:text-sm", o.id === value && "bg-emerald-50 font-medium")}
                   onClick={() => {
                     onSelect(o.id);
                     setOpen(false);
@@ -125,7 +130,7 @@ export function Combobox({
                   <button
                     type="button"
                     aria-label={`Delete ${o.name}`}
-                    className="p-2 text-slate-400 hover:text-red-600"
+                    className="p-3 text-slate-400 hover:text-red-600 lg:p-2"
                     onClick={() => {
                       setOpen(false);
                       onDelete(o);

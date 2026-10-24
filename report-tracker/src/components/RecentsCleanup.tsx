@@ -44,7 +44,7 @@ export function DeleteOldData({ months, current }: { months: M[]; current: numbe
       <select
         value={keep}
         onChange={(e) => setKeep(Number(e.target.value))}
-        className="h-10 rounded-lg border bg-white px-3 text-sm font-medium"
+        className="h-10 rounded-lg border bg-white px-3 text-base font-medium lg:text-sm"
         aria-label="Months to keep"
       >
         {KEEP_OPTIONS.map((n) => (

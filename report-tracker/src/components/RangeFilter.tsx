@@ -20,7 +20,7 @@ export function RangeFilter({ range, from, to }: { range: string; from: string; 
       <select
         value={range}
         onChange={(e) => go(e.target.value, from, to)}
-        className="h-11 rounded-lg border bg-white px-3 text-sm font-medium"
+        className="h-11 rounded-lg border bg-white px-3 text-base font-medium lg:text-sm"
         aria-label="Date range"
       >
         {PRESETS.map((p) => (

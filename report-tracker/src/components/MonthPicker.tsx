@@ -8,7 +8,7 @@ export function MonthPicker({ value, options }: { value: string; options: { id: 
     <select
       value={value}
       onChange={(e) => router.push(e.target.value ? `/recents?month=${e.target.value}` : "/recents")}
-      className="h-11 rounded-lg border bg-white px-3 text-sm font-medium"
+      className="h-11 rounded-lg border bg-white px-3 text-base font-medium lg:text-sm"
       aria-label="Select month"
     >
       <option value="">Select a month…</option>
