@@ -13,11 +13,26 @@ enum MonthStatus {
   COMPLETED
 }
 
+enum ReportStatus {
+  ASSIGNED
+  UNDER_REVIEW
+  READY_TO_SEND
+  SENT
+}
+
+// Single row (id "default"): the uniform rates used when no specific rate is set
+model Setting {
+  id                  String @id
+  defaultClientRate   Int    @default(2000)
+  defaultEmployeeRate Int    @default(400)
+}
+
 model Client {
   id          String       @id @default(cuid())
   name        String       @unique
   notes       String?
-  rate        Int          @default(2000) // client payment rate per report, in rupees
+  rate        Int          @default(2000) // legacy: no longer read, kept so existing data is untouched
+  rateOverride Int?        // specific rate for this client; null = use the uniform default
   defaultReports Int       @default(1) // "Reports received" filled in when this client is picked on a row
   createdAt   DateTime     @default(now())
   assignments Assignment[]
@@ -27,6 +42,7 @@ model Employee {
   id          String       @id @default(cuid())
   name        String       @unique
   contact     String?
+  rateOverride Int?        // specific rate for this employee; null = use the uniform default
   isSelf      Boolean      @default(false) // the built-in "Self" entry: work done by me, nothing to pay
   createdAt   DateTime     @default(now())
   assignments Assignment[]
@@ -75,6 +91,7 @@ model Assignment {
   employeeRate         Int               @default(400)
   employeeQty          Int               @default(1)
   employeeTotal        Int // employeeRate * employeeQty
+  status               ReportStatus      @default(ASSIGNED)
   createdAt            DateTime          @default(now())
   week                 Week              @relation(fields: [weekId], references: [id], onDelete: Cascade)
   client               Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)

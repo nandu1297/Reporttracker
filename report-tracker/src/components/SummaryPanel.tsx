@@ -1,5 +1,7 @@
 import { inr, type EmployeeLine, type Summary } from "@/lib/calc";
+import type { RowDTO } from "@/lib/data";
 import { cn } from "@/lib/utils";
+import { StatusBreakdown } from "@/components/StatusBreakdown";
 
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: "green" | "orange" | "plain" }) {
   return (
@@ -70,11 +72,13 @@ export function SummaryPanel({
   s,
   bulk,
   byEmployee,
+  statusRows,
 }: {
   title: string;
   s: Summary;
   bulk?: React.ReactNode;
   byEmployee?: EmployeeLine[];
+  statusRows?: RowDTO[];
 }) {
   return (
     <section className="mt-3">
@@ -109,6 +113,7 @@ export function SummaryPanel({
           <div className="pt-1 text-xs text-slate-500">Not counted in employee payment</div>
         </Group>
       </div>
+      {statusRows && <StatusBreakdown rows={statusRows} />}
       {byEmployee && byEmployee.length > 0 && <EmployeeTable lines={byEmployee} />}
       {bulk}
     </section>

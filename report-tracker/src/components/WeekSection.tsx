@@ -7,6 +7,7 @@ import { extendWeek, addAssignment, deleteClient, deleteEmployee, deleteAssignme
 import { fmtDay, fmtShort } from "@/lib/dates";
 import { clientTotal, employeeTotal, inr, summarize, summarizeByEmployee, type AssignmentCalc } from "@/lib/calc";
 import type { RowDTO } from "@/lib/data";
+import { REPORT_STATUSES, STATUS_LABEL, type ReportStatus } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,11 +27,11 @@ import { AddClientDialog, AddEmployeeDialog } from "@/components/QuickAdd";
 import { BulkReceived } from "@/components/BulkReceived";
 import { SummaryPanel } from "@/components/SummaryPanel";
 
-type Opt = { id: string; name: string; isSelf?: boolean };
+type Opt = { id: string; name: string; isSelf?: boolean; rate?: number };
 type Week = { id: string; number: number; startDate: string; endDate: string };
 
 const GRID =
-  "lg:grid-cols-[minmax(150px,1.2fr)_minmax(150px,1.4fr)_70px_minmax(140px,1.1fr)_80px_64px_90px_110px_110px_44px]";
+  "lg:grid-cols-[minmax(150px,1.2fr)_minmax(150px,1.4fr)_130px_minmax(140px,1.1fr)_80px_64px_90px_130px_110px_140px_44px]";
 
 function days(start: string, end: string) {
   const out: Date[] = [];
@@ -83,10 +84,11 @@ export function WeekSection({
       </div>
 
       <div className="overflow-x-auto rounded-xl border bg-white">
-        <div className="lg:min-w-[1150px]">
-          <div className={cn("hidden gap-2 border-b bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-500 lg:grid", GRID)}>
-            <span>Client</span><span>Report name</span><span>Received</span><span>Employee</span>
-            <span>Rate ₹</span><span>Qty</span><span>Emp. total</span><span>Client pay</span><span>Employee pay</span><span />
+        <div className="lg:min-w-[1380px]">
+          <div className={cn("hidden items-center gap-2 border-b bg-slate-50 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid", GRID)}>
+            <span>Client</span><span>Report name</span><span className="text-center">Received</span><span>Employee</span>
+            <span className="text-center">Rate ₹</span><span className="text-center">Qty</span><span className="pr-2 text-right">Emp. total</span>
+            <span className="text-center">Client pay</span><span className="text-center">Employee pay</span><span className="text-center">Status</span><span />
           </div>
 
           {dayList.map((d) => {
@@ -151,6 +153,7 @@ export function WeekSection({
         title={`W${week.number} summary · ${fmtShort(dayList[0])} – ${fmtShort(dayList[dayList.length - 1])}`}
         s={summary}
         byEmployee={byEmployee}
+        statusRows={rows}
         bulk={
           <>
             <BulkReceived
@@ -250,7 +253,13 @@ function Row({
   const commit = (key: string, val: string, orig: string | number) => {
     if (val !== String(orig)) onPatch({ [key]: val });
   };
-  const num = "h-10 px-2 lg:h-9";
+  const step = (d: number) => {
+    const next = Math.max(0, (Number(received) || 0) + d);
+    setReceived(String(next));
+    onPatch({ reportsReceived: String(next) });
+  };
+  const num =
+    "h-10 px-2 text-center tabular-nums lg:h-9 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
   const lbl = "mb-0.5 block text-[11px] font-medium uppercase text-slate-400 lg:hidden";
 
   const payBtn = (kind: "client" | "employee") => {
@@ -282,7 +291,7 @@ function Row({
   };
 
   return (
-    <div className={cn("grid grid-cols-2 items-end gap-2 border-t-4 border-slate-100 px-3 py-4 first:border-t-0 lg:items-center lg:border-t lg:border-border lg:py-2", GRID)}>
+    <div className={cn("grid grid-cols-2 items-start gap-2 border-t-4 border-slate-100 px-3 py-4 first:border-t-0 lg:items-start lg:border-t lg:border-border lg:py-2.5", GRID)}>
       <div className="col-span-2 lg:col-span-1">
         <span className={lbl}>Client</span>
         <Combobox
@@ -310,16 +319,40 @@ function Row({
       </div>
       <div className="col-span-2 lg:col-span-1">
         <span className={lbl}>Reports received</span>
-        <Input
-          className={num}
-          type="number"
-          min={0}
-          inputMode="numeric"
-          value={received}
-          disabled={readOnly}
-          onChange={(e) => setReceived(e.target.value)}
-          onBlur={() => commit("reportsReceived", received, row.reportsReceived)}
-        />
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label="Decrease reports received"
+            className="size-10 shrink-0 lg:size-9"
+            disabled={readOnly || (Number(received) || 0) <= 0}
+            onClick={() => step(-1)}
+          >
+            <Minus />
+          </Button>
+          <Input
+            className={cn(num, "min-w-0")}
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={received}
+            disabled={readOnly}
+            onChange={(e) => setReceived(e.target.value)}
+            onBlur={() => commit("reportsReceived", received, row.reportsReceived)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label="Increase reports received"
+            className="size-10 shrink-0 lg:size-9"
+            disabled={readOnly}
+            onClick={() => step(1)}
+          >
+            <Plus />
+          </Button>
+        </div>
       </div>
       <div className="col-span-2 lg:col-span-1">
         <span className={lbl}>Assigned employee</span>
@@ -361,17 +394,17 @@ function Row({
           onBlur={() => commit("employeeQty", qty, row.employeeQty)}
         />
       </div>
-      <div>
+      <div className="col-span-2 flex items-baseline justify-between lg:col-span-1 lg:block">
         <span className={lbl}>Employee total</span>
-        <div className="text-sm font-semibold tabular-nums">{inr(row.employeeTotal)}</div>
+        <div className="text-sm font-semibold tabular-nums lg:flex lg:h-9 lg:items-center lg:justify-end lg:pr-2">{inr(row.employeeTotal)}</div>
       </div>
       <div>
         <span className={lbl}>Client payment · {inr(row.clientTotal)}</span>
         {payBtn("client")}
-        <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
+        <div className="mt-1 flex items-center gap-1 whitespace-nowrap text-[11px] text-slate-500 lg:justify-center">
           {inr(row.clientTotal)} @
           <Input
-            className="h-9 w-20 px-1 text-base lg:h-6 lg:w-16 lg:text-xs"
+            className="h-9 w-20 px-1 text-center text-base lg:h-6 lg:w-16 lg:text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             type="number"
             min={0}
             inputMode="numeric"
@@ -386,7 +419,29 @@ function Row({
         <span className={lbl}>Employee payment</span>
         {payBtn("employee")}
       </div>
-      <div className="col-span-2 flex justify-end lg:col-span-1">
+      <div className="col-span-2 lg:col-span-1">
+        <span className={lbl}>Status</span>
+        <select
+          value={row.status}
+          disabled={readOnly}
+          onChange={(e) => onPatch({ status: e.target.value })}
+          className={cn(
+            "h-11 w-full rounded-lg border px-2 text-base font-semibold lg:h-9 lg:text-xs",
+            row.status === "SENT"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : row.status === "ASSIGNED"
+                ? "border-slate-200 bg-white text-slate-700"
+                : "border-orange-200 bg-orange-50 text-orange-700",
+          )}
+        >
+          {REPORT_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {STATUS_LABEL[s]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="col-span-2 flex items-center justify-end lg:col-span-1 lg:h-9">
         {!readOnly && (
           <Confirm
             title="Delete this assignment?"
@@ -438,9 +493,11 @@ function reduce(cur: RowDTO[], a: Opt2, clients: (Opt & { rate: number; defaultR
       n.employeeId = e?.id ?? null;
       n.employeeName = e?.name ?? null;
       n.isSelf = !!e?.isSelf;
+      if (e?.rate !== undefined && p.employeeRate === undefined) n.employeeRate = e.rate;
       if (n.isSelf) n.employeePaid = 0;
     }
     if (p.reportName !== undefined) n.reportName = String(p.reportName);
+    if (p.status !== undefined) n.status = p.status as ReportStatus;
     if (p.reportsReceived !== undefined) n.reportsReceived = Number(p.reportsReceived) || 0;
     if (p.clientRate !== undefined) n.clientRate = Number(p.clientRate) || 0;
     if (p.employeeRate !== undefined) n.employeeRate = Number(p.employeeRate) || 0;

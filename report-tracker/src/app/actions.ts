@@ -4,8 +4,10 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { clientTotal, employeeTotal, DEFAULT_CLIENT_RATE, DEFAULT_EMPLOYEE_RATE } from "@/lib/calc";
+import { clientTotal, employeeTotal } from "@/lib/calc";
+import { getRateDefaults } from "@/lib/rates";
 import { weekRanges } from "@/lib/dates";
+import { REPORT_STATUSES } from "@/lib/status";
 import { KEEP_OPTIONS, currentMonthIndex, monthsToPrune } from "@/lib/prune";
 
 type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -29,20 +31,19 @@ const int = (label: string, min = 0) =>
 const clientSchema = z.object({
   name: z.string().trim().min(1, "Client name is required").max(120),
   notes: z.string().trim().max(500).optional(),
-  rate: int("Rate").default(DEFAULT_CLIENT_RATE),
   defaultReports: int("Default reports", 1).default(1),
 });
 
 export async function addClient(
   input: unknown,
-): Promise<Result<{ client: { id: string; name: string; rate: number } }>> {
+): Promise<Result<{ client: { id: string; name: string } }>> {
   try {
     const d = clientSchema.parse(input);
     const dup = await db.client.findFirst({ where: { name: { equals: d.name, mode: "insensitive" } } });
     if (dup) return { ok: false, error: "A client with this name already exists" };
-    const client = await db.client.create({ data: { name: d.name, notes: d.notes || null, rate: d.rate, defaultReports: d.defaultReports } });
+    const client = await db.client.create({ data: { name: d.name, notes: d.notes || null, defaultReports: d.defaultReports } });
     refresh();
-    return { ok: true, client: { id: client.id, name: client.name, rate: client.rate } };
+    return { ok: true, client: { id: client.id, name: client.name } };
   } catch (e) {
     return fail(e);
   }
@@ -166,7 +167,7 @@ export async function addAssignment(weekId: string, date: string): Promise<Resul
     const week = await assertEditable(weekId);
     const d = new Date(date + "T00:00:00Z");
     if (isNaN(+d) || d < week.startDate || d > week.endDate) throw new Error("Date is outside this week");
-    const count = await db.assignment.count({ where: { weekId, date: d } });
+    const [count, rates] = await Promise.all([db.assignment.count({ where: { weekId, date: d } }), getRateDefaults()]);
     await db.assignment.create({
       data: {
         weekId,
@@ -174,11 +175,11 @@ export async function addAssignment(weekId: string, date: string): Promise<Resul
         sortOrder: count,
         clientName: "",
         reportsReceived: 1,
-        clientRate: DEFAULT_CLIENT_RATE,
-        clientTotal: DEFAULT_CLIENT_RATE,
-        employeeRate: DEFAULT_EMPLOYEE_RATE,
+        clientRate: rates.clientRate,
+        clientTotal: rates.clientRate,
+        employeeRate: rates.employeeRate,
         employeeQty: 1,
-        employeeTotal: DEFAULT_EMPLOYEE_RATE,
+        employeeTotal: rates.employeeRate,
       },
     });
     refresh();
@@ -196,13 +197,14 @@ const patchSchema = z.object({
   employeeId: z.string().nullable().optional(),
   employeeRate: int("Employee rate").optional(),
   employeeQty: int("Payment quantity").optional(),
+  status: z.enum(REPORT_STATUSES).optional(),
 });
 
 export async function updateAssignment(id: string, input: unknown): Promise<Result> {
   try {
     const patch = patchSchema.parse(input);
     // Reads run in parallel and the write is a single statement: far fewer round trips to the remote DB.
-    const [cur, client, employee] = await Promise.all([
+    const [cur, client, employee, rates] = await Promise.all([
       db.assignment.findUnique({
         relationLoadStrategy: "join",
         where: { id },
@@ -210,6 +212,7 @@ export async function updateAssignment(id: string, input: unknown): Promise<Resu
       }),
       patch.clientId ? db.client.findUnique({ where: { id: patch.clientId } }) : null,
       patch.employeeId ? db.employee.findUnique({ where: { id: patch.employeeId } }) : null,
+      patch.clientId || patch.employeeId ? getRateDefaults() : null,
     ]);
     if (!cur) throw new Error("Row not found");
     if (cur.week.month.status === "COMPLETED") throw new Error("This month is archived. Reopen it to edit.");
@@ -220,7 +223,7 @@ export async function updateAssignment(id: string, input: unknown): Promise<Resu
         if (!client) throw new Error("Client not found");
         data.clientId = client.id;
         data.clientName = client.name;
-        if (patch.clientRate === undefined) clientRate = client.rate;
+        if (patch.clientRate === undefined) clientRate = client.rateOverride ?? rates!.clientRate;
       } else {
         data.clientId = null;
         data.clientName = "";
@@ -232,6 +235,7 @@ export async function updateAssignment(id: string, input: unknown): Promise<Resu
         data.employeeId = employee.id;
         data.employeeName = employee.name;
         data.isSelf = employee.isSelf;
+        if (patch.employeeRate === undefined) data.employeeRate = employee.rateOverride ?? rates!.employeeRate;
         // Nothing is owed for work done by me, so drop any payment recorded earlier.
         if (employee.isSelf) data.employeePayments = { deleteMany: {} };
       } else {
@@ -241,10 +245,11 @@ export async function updateAssignment(id: string, input: unknown): Promise<Resu
       }
     }
     if (patch.reportName !== undefined) data.reportName = patch.reportName;
+    if (patch.status !== undefined) data.status = patch.status;
     // Picking a client fills in that client's usual report count (unless one was typed in the same edit).
     const reports =
       patch.reportsReceived ?? (patch.clientId && client ? client.defaultReports : cur.reportsReceived);
-    const eRate = patch.employeeRate ?? cur.employeeRate;
+    const eRate = patch.employeeRate ?? (data.employeeRate as number | undefined) ?? cur.employeeRate;
     const eQty = patch.employeeQty ?? cur.employeeQty;
     Object.assign(data, {
       reportsReceived: reports,
@@ -397,6 +402,34 @@ export async function extendWeek(weekId: string, delta: 1 | -1): Promise<Result>
         db.week.update({ where: { id: next.id }, data: { startDate: new Date(+next.startDate - day) } }),
       ]);
     }
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- default rates ----------
+const rateOrNull = z.union([z.literal(""), z.null(), int("Rate")]).transform((v) => (v === "" || v === null ? null : Number(v)));
+
+export async function saveDefaultRates(input: unknown): Promise<Result> {
+  try {
+    const d = z.object({ clientRate: int("Client rate"), employeeRate: int("Employee rate") }).parse(input);
+    const data = { defaultClientRate: d.clientRate, defaultEmployeeRate: d.employeeRate };
+    await db.setting.upsert({ where: { id: "default" }, update: data, create: { id: "default", ...data } });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// Empty = no specific rate: the uniform default applies. Existing rows are never changed.
+export async function setSpecificRate(kind: "client" | "employee", id: string, rate: unknown): Promise<Result> {
+  try {
+    const rateOverride = rateOrNull.parse(rate);
+    if (kind === "client") await db.client.update({ where: { id }, data: { rateOverride } });
+    else await db.employee.update({ where: { id }, data: { rateOverride } });
     refresh();
     return { ok: true };
   } catch (e) {

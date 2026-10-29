@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { summarize, summarizeByEmployee, employeeTotal, clientTotal } from "./calc";
+import { summarize, summarizeByEmployee, countByStatus, employeeTotal, clientTotal } from "./calc";
 
 test("employee total = rate x quantity", () => {
   assert.equal(employeeTotal(400, 3), 1200);
@@ -41,4 +41,13 @@ test("self rows owe nothing, raise profit and show savings", () => {
   const lines = summarizeByEmployee(rows);
   assert.equal(lines.length, 1);
   assert.deepEqual([lines[0].name, lines[0].reports, lines[0].total, lines[0].status], ["Rithvik", 2, 800, "pending"]);
+});
+
+test("status counts reports, not rows", () => {
+  const c = countByStatus([
+    { status: "ASSIGNED", reportsReceived: 2 },
+    { status: "ASSIGNED", reportsReceived: 1 },
+    { status: "SENT", reportsReceived: 3 },
+  ]);
+  assert.deepEqual(c, { ASSIGNED: 3, UNDER_REVIEW: 0, READY_TO_SEND: 0, SENT: 3 });
 });

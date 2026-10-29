@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { addClient, addEmployee } from "@/app/actions";
-import { DEFAULT_CLIENT_RATE } from "@/lib/calc";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -21,18 +20,16 @@ export function AddClientDialog({
 }) {
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
-  const [rate, setRate] = useState(String(DEFAULT_CLIENT_RATE));
   const [defaultReports, setDefaultReports] = useState("1");
   const [pending, start] = useTransition();
 
   const save = () =>
     start(async () => {
-      const r = await addClient({ name, notes, rate, defaultReports });
+      const r = await addClient({ name, notes, defaultReports });
       if (!r.ok) return void toast.error(r.error);
       toast.success(`Client “${r.client.name}” added`);
       setName("");
       setNotes("");
-      setRate(String(DEFAULT_CLIENT_RATE));
       setDefaultReports("1");
       onOpenChange(false);
       onCreated(r.client.id);
@@ -48,10 +45,6 @@ export function AddClientDialog({
           <div className="space-y-1.5">
             <Label>Client name</Label>
             <Input className="h-11" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Payment rate per report (₹)</Label>
-            <Input className="h-11" type="number" inputMode="numeric" value={rate} onChange={(e) => setRate(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label>Reports received by default</Label>

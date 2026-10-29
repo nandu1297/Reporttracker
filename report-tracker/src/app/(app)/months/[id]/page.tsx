@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getMonthFull } from "@/lib/data";
+import { getRateDefaults } from "@/lib/rates";
 import { fmtShort, monthLabel } from "@/lib/dates";
 import { SummaryPanel } from "@/components/SummaryPanel";
 import { WeekSection } from "@/components/WeekSection";
@@ -10,11 +11,14 @@ import { Badge } from "@/components/ui/badge";
 
 export default async function MonthPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [full, clients, employees] = await Promise.all([
+  const [full, clientRows, employeeRows, rates] = await Promise.all([
     getMonthFull(id),
-    db.client.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, rate: true, defaultReports: true } }),
-    db.employee.findMany({ orderBy: [{ isSelf: "desc" }, { name: "asc" }], select: { id: true, name: true, isSelf: true } }),
+    db.client.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, rateOverride: true, defaultReports: true } }),
+    db.employee.findMany({ orderBy: [{ isSelf: "desc" }, { name: "asc" }], select: { id: true, name: true, isSelf: true, rateOverride: true } }),
+    getRateDefaults(),
   ]);
+  const clients = clientRows.map((c) => ({ id: c.id, name: c.name, defaultReports: c.defaultReports, rate: c.rateOverride ?? rates.clientRate }));
+  const employees = employeeRows.map((e) => ({ id: e.id, name: e.name, isSelf: e.isSelf, rate: e.rateOverride ?? rates.employeeRate }));
   if (!full) notFound();
   const { month, weeks, monthSummary } = full;
   const archived = month.status === "COMPLETED";

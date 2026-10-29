@@ -1,3 +1,5 @@
+import type { ReportStatus } from "./status";
+
 export const DEFAULT_CLIENT_RATE = 2000;
 export const DEFAULT_EMPLOYEE_RATE = 400;
 
@@ -59,6 +61,13 @@ export function summarize(rows: AssignmentCalc[]): Summary {
   s.employeePending = s.employeeTotal - s.employeePaid;
   s.profit = s.clientAmount - s.employeeTotal;
   return s;
+}
+
+// Reports (not rows) per status: a row with 3 reports received counts as 3.
+export function countByStatus(rows: { status: ReportStatus; reportsReceived: number }[]): Record<ReportStatus, number> {
+  const c: Record<ReportStatus, number> = { ASSIGNED: 0, UNDER_REVIEW: 0, READY_TO_SEND: 0, SENT: 0 };
+  for (const r of rows) c[r.status] += r.reportsReceived;
+  return c;
 }
 
 export type EmployeeLine = {
